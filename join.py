@@ -7,10 +7,10 @@ from telegram.ext import Application, ChatJoinRequestHandler, CallbackQueryHandl
 # ================= CONFIGURATION (इसे ध्यान से भरें) =================
 
 # 1. अपना बोट टोकन यहाँ डालें
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = "8265358758:AAE4xUVVEoKcfLVn-BgPhxa9kx43ATww51s"
 
 # 2. MongoDB URL (Atlas से कॉपी करें)
-MONGO_URI = "mongodb+srv://username:password@cluster0.mongodb.net/?retryWrites=true&w=majority"
+MONGO_URI = "mongodb+srv://tigerbundle282:tTaRXh353IOL9mj2@testcookies.2elxf.mongodb.net/?retryWrites=true&w=majority&appName=Testcookies"
 
 # 3. आपकी टेलीग्राम ID (Owner ID - Broadcast और Stats के लिए)
 OWNER_ID = 123456789
