@@ -1,161 +1,194 @@
 
 
-# ============================================================
-
-
-
 import logging
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, ContextTypes, ChatJoinRequestHandler, CallbackQueryHandler, CommandHandler
-from telegram.error import BadRequest
+from telegram.ext import (
+    ApplicationBuilder, 
+    ContextTypes, 
+    ChatJoinRequestHandler, 
+    CallbackQueryHandler, 
+    CommandHandler
+)
+from telegram.error import BadRequest, Forbidden
 import motor.motor_asyncio
 
-# ================= कॉन्फ़िगरेशन (Configuration) =================
-BOT_TOKEN = "8265358758:AAE4xUVVEoKcfLVn-BgPhxa9kx43ATww51s"  # अपना बोट टोकन यहाँ डालें
-MONGO_URI = "mongodb+srv://tigerbundle282:tTaRXh353IOL9mj2@testcookies.2elxf.mongodb.net/?retryWrites=true&w=majority&appName=Testcookies" # अपनी MongoDB कनेक्शन स्ट्रिंग डालें
+# ================= आपकी सेटिंग्स (Updated) =================
+# आपने जो डिटेल्स दी हैं, वो यहाँ सेट कर दी गई हैं:
+BOT_TOKEN = "8265358758:AAE4xUVVEoKcfLVn-BgPhxa9kx43ATww51s"
+MONGO_URI = "mongodb+srv://tigerbundle282:tTaRXh353IOL9mj2@testcookies.2elxf.mongodb.net/?retryWrites=true&w=majority&appName=Testcookies"
+
 DB_NAME = "TelegramBotDB"
 COLLECTION_NAME = "JoinRequests"
 
-# मेन ग्रुप जहाँ लोग जॉइन रिक्वेस्ट भेजेंगे (Group ID)
+# आपका मेन ग्रुप ID
 MAIN_GROUP_ID = -1001940665606
 
-# वो चैनल/ग्रुप्स जिन्हें जॉइन करना अनिवार्य है (ID और Link)
+# आपके चैनल जिन्हें जॉइन करना अनिवार्य है
 REQUIRED_CHANNELS = [
     {"id": -1002888994822, "link": "https://t.me/noxerXnet"},
     {"id": -1001733704340, "link": "https://t.me/ssc_pdf_books"},
 ]
-# ==============================================================
+# ==========================================================
 
-# लॉगिंग सेट करना
+# लॉगिंग सेट करना (ताकि एरर दिखे)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# MongoDB सेटअप
-client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
-db = client[DB_NAME]
-collection = db[COLLECTION_NAME]
+# MongoDB कनेक्शन सेटअप
+try:
+    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+    db = client[DB_NAME]
+    collection = db[COLLECTION_NAME]
+    logging.info("MongoDB Connected Successfully!")
+except Exception as e:
+    logging.error(f"MongoDB connection failed: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("बोट चालू है! मैं जॉइन रिक्वेस्ट हैंडल कर रहा हूँ।")
+    """
+    सिर्फ यह चेक करने के लिए कि बोट चल रहा है।
+    """
+    await update.message.reply_text("बोट ऑनलाइन है! Force Join सिस्टम एक्टिव है।")
 
 async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    जब कोई यूजर ग्रुप में जॉइन रिक्वेस्ट भेजता है, तो यह फंक्शन चलता है।
-    यह यूजर को डेटाबेस में सेव करता है और प्राइवेट मैसेज भेजता है।
+    यह फंक्शन तब चलता है जब कोई 'Request to Join' बटन दबाता है।
+    यह यूजर को प्राइवेट मैसेज भेजेगा (भले ही यूजर ने बोट स्टार्ट न किया हो)।
     """
     request = update.chat_join_request
     user = request.from_user
     chat = request.chat
 
-    # सिर्फ मेन ग्रुप की रिक्वेस्ट हैंडल करें
+    # सिर्फ आपके वाले मेन ग्रुप की रिक्वेस्ट को ही प्रोसेस करेंगे
     if chat.id != MAIN_GROUP_ID:
         return
 
-    # डेटाबेस में यूजर की जानकारी सेव करें (MongoDB)
+    logging.info(f"New Request: {user.first_name} requested to join {chat.title}")
+
+    # 1. डेटाबेस में यूजर को 'Pending' स्टेटस के साथ सेव करें
     user_data = {
         "user_id": user.id,
         "first_name": user.first_name,
         "username": user.username,
         "chat_id": chat.id,
-        "status": "pending"
+        "status": "pending",
+        "request_date": request.date
     }
     
-    # पुराना डेटा अपडेट करें या नया डालें
+    # डेटाबेस में सेव/अपडेट करें
     await collection.update_one(
         {"user_id": user.id, "chat_id": chat.id},
         {"$set": user_data},
         upsert=True
     )
 
-    # बटन्स तैयार करना
+    # 2. कीबोर्ड (बटन्स) तैयार करना
     keyboard = []
-    for channel in REQUIRED_CHANNELS:
-        keyboard.append([InlineKeyboardButton("Join Channel", url=channel['link'])])
     
-    # Verify बटन (callback_data में user_id और chat_id भेज रहे हैं)
-    keyboard.append([InlineKeyboardButton("✅ Verify & Join", callback_data=f"verify_{user.id}_{chat.id}")])
+    # आपके चैनल्स के लिए बटन
+    for channel in REQUIRED_CHANNELS:
+        # चैनल का नाम (लिंक से थोड़ा साफ दिखे इसलिए static नाम या लिंक यूज़ कर रहे हैं)
+        btn_text = "📢 Join Channel"
+        keyboard.append([InlineKeyboardButton(btn_text, url=channel['link'])])
+    
+    # वेरीफाई बटन
+    keyboard.append([InlineKeyboardButton("✅ Verify & Join Group", callback_data=f"verify_{user.id}_{chat.id}")])
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    # 3. यूजर को सीधे प्राइवेट मैसेज भेजें
     try:
-        # यूजर को प्राइवेट मैसेज भेजें
         await context.bot.send_message(
             chat_id=user.id,
             text=(
-                f"नमस्ते {user.first_name}! 👋\n\n"
-                "मेरी ग्रुप में रिक्वेस्ट एक्सेप्ट करवाने के लिए, "
-                "आपको नीचे दिए गए चैनल्स को जॉइन करना होगा।\n\n"
-                "सारे चैनल्स जॉइन करने के बाद **Verify** बटन दबाएं।"
+                f"👋 नमस्ते {user.first_name}!\n\n"
+                f"आपने **{chat.title}** ग्रुप में जुड़ने की रिक्वेस्ट भेजी है।\n"
+                "✅ रिक्वेस्ट अप्रूव करवाने के लिए, नीचे दिए गए चैनल्स को जॉइन करना ज़रूरी है।\n\n"
+                "सारे चैनल्स जॉइन करें और फिर **Verify** बटन दबाएं।"
             ),
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            disable_web_page_preview=True
         )
+    except Forbidden:
+        logging.error(f"User {user.id} has blocked the bot. Message failed.")
     except Exception as e:
-        logging.error(f"मैसेज भेजने में त्रुटि (शायद यूजर ने बोट स्टार्ट नहीं किया): {e}")
+        logging.error(f"Error sending DM to {user.id}: {e}")
 
 async def verify_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    जब यूजर 'Verify' बटन दबाता है।
+    जब यूजर 'Verify' बटन दबाता है, तो यह चेक करेगा।
     """
     query = update.callback_query
-    await query.answer() # लोडिंग एनीमेशन रोकने के लिए
+    await query.answer("Checking subscription...") # लोडिंग दिखाएगा
 
     data = query.data.split("_")
     user_id = int(data[1])
     group_chat_id = int(data[2])
 
-    not_joined = []
+    not_joined_channels = []
 
-    # चेक करें कि यूजर ने सभी चैनल्स जॉइन किए हैं या नहीं
+    # 4. चेक करें: क्या यूजर ने सारे चैनल जॉइन कर लिए?
     for channel in REQUIRED_CHANNELS:
         try:
             member = await context.bot.get_chat_member(chat_id=channel['id'], user_id=user_id)
-            # यूजर member, creator या admin होना चाहिए
-            if member.status not in ['member', 'creator', 'administrator']:
-                not_joined.append(channel['link'])
-        except BadRequest:
-            # अगर बोट चैनल में एडमिन नहीं है तो चेक नहीं कर पाएगा
-            logging.error(f"बोट चैनल {channel['id']} में एडमिन नहीं है!")
-            await query.edit_message_text("Error: मैं चेक नहीं कर पा रहा हूँ। कृपया एडमिन से संपर्क करें।")
+            
+            # सिर्फ ये स्टेटस वैलिड माने जाएंगे
+            if member.status not in ['member', 'creator', 'administrator', 'restricted']:
+                not_joined_channels.append(channel['link'])
+            # अगर restricted है (banned नहीं) और member भी है, तो ok है।
+            elif member.status == 'restricted' and not member.is_member:
+                 not_joined_channels.append(channel['link'])
+                 
+        except BadRequest as e:
+            # अगर बोट चैनल में एडमिन नहीं है, तो एरर आएगा
+            logging.error(f"Error checking channel {channel['id']}: {e}")
+            await query.edit_message_text(f"❌ Error: मैं चैनल चेक नहीं कर पा रहा हूँ। कृपया एडमिन से संपर्क करें।\n(Bot needs Admin rights in channels)")
             return
 
-    if not_joined:
-        # अगर कुछ चैनल जॉइन नहीं किए
+    # 5. रिजल्ट
+    if not_joined_channels:
+        # अगर अभी भी कुछ चैनल जॉइन नहीं किए
         await query.edit_message_text(
-            text="❌ आपने अभी तक सारे चैनल्स जॉइन नहीं किए हैं। कृपया जॉइन करें और फिर से कोशिश करें।",
-            reply_markup=query.message.reply_markup # बटन वापस दिखाएं
+            text=(
+                "❌ **Access Denied!**\n\n"
+                "आपने अभी तक सारे चैनल्स जॉइन नहीं किए हैं।\n"
+                "कृपया जॉइन करें और फिर से कोशिश करें।"
+            ),
+            reply_markup=query.message.reply_markup # पुराने बटन वापस दिखाएं
         )
     else:
-        # अगर सब जॉइन कर लिया है -> रिक्वेस्ट एक्सेप्ट करें
+        # सब सही है -> रिक्वेस्ट एक्सेप्ट करें
         try:
             await context.bot.approve_chat_join_request(chat_id=group_chat_id, user_id=user_id)
             
-            # डेटाबेस में स्टेटस अपडेट करें
+            # DB अपडेट
             await collection.update_one(
                 {"user_id": user_id, "chat_id": group_chat_id},
                 {"$set": {"status": "approved"}}
             )
 
-            await query.edit_message_text(f"✅ बहुत बढ़िया! आपकी रिक्वेस्ट एक्सेप्ट कर ली गई है। आप अब ग्रुप में हैं।")
-            
-            # (वैकल्पिक) यूजर को ग्रुप लिंक भेज सकते हैं या बस बता दें
+            await query.edit_message_text(
+                f"✅ **Verified!**\n\nआपकी रिक्वेस्ट एक्सेप्ट कर ली गई है। आपका स्वागत है!"
+            )
             
         except BadRequest as e:
-            await query.edit_message_text(f"Error: रिक्वेस्ट एक्सेप्ट नहीं हो पा रही (शायद पहले ही एक्सेप्ट हो चुकी है)।\n{e}")
+            await query.edit_message_text("⚠️ आपकी रिक्वेस्ट पहले ही प्रोसेस हो चुकी है।")
+            logging.error(f"Approval Error: {e}")
 
 if __name__ == '__main__':
+    # एप्लिकेशन बिल्डर
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # हैंडलर्स जोड़ना
     application.add_handler(CommandHandler("start", start))
     
-    # जब कोई रिक्वेस्ट भेजे
+    # सबसे महत्वपूर्ण: जॉइन रिक्वेस्ट हैंडलर
     application.add_handler(ChatJoinRequestHandler(handle_join_request))
     
-    # जब कोई बटन दबाए
+    # बटन हैंडलर
     application.add_handler(CallbackQueryHandler(verify_subscription, pattern="^verify_"))
 
-    print("Bot is running...")
+    print("🤖 Bot is running with your configuration...")
     application.run_polling()
-    
