@@ -7,7 +7,7 @@ from telegram.ext import Application, ChatJoinRequestHandler, CallbackQueryHandl
 
 # ================= CONFIGURATION (इसे भरें) =================
 BOT_TOKEN = "8265358758:AAE4xUVVEoKcfLVn-BgPhxa9kx43ATww51s"
-MONGO_URI = ""
+MONGO_URI = "mongodb+srv://tigerbundle282:tTaRXh353IOL9mj2@testcookies.2elxf.mongodb.net/?retryWrites=true&w=majority&appName=Testcookies"
 OWNER_ID = 8177972152
 # ============================================================
 
