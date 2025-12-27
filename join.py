@@ -1,7 +1,6 @@
 
 
 import logging
-import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -11,10 +10,10 @@ from telegram.ext import (
     CallbackQueryHandler, 
     CommandHandler
 )
-from telegram.error import BadRequest, Forbidden
+from telegram.error import BadRequest, Forbidden, TelegramError
 import motor.motor_asyncio
 
-# ================= CREDENTIALS =================
+# ================= सेटिंग्स =================
 BOT_TOKEN = "8265358758:AAEh0w0gMyVadZWguiqrYQM6xegfpcy2wiA"
 MONGO_URI = "mongodb+srv://tigerbundle282:tTaRXh353IOL9mj2@testcookies.2elxf.mongodb.net/?retryWrites=true&w=majority&appName=Testcookies"
 DB_NAME = "TelegramBotDB"
@@ -23,88 +22,61 @@ COLLECTION_NAME = "JoinRequests"
 MAIN_GROUP_ID = -1001940665606
 
 REQUIRED_CHANNELS = [
-    {"id": -1002888994822, "link": "https://t.me/noxerXnet"},
-    {"id": -1001733704340, "link": "https://t.me/ssc_pdf_books"},
+    {"id": -1002888994822, "link": "https://t.me/noxerXnet", "name": "NoxerXnet"},
+    {"id": -1001733704340, "link": "https://t.me/ssc_pdf_books", "name": "SSC PDF Books"},
 ]
-# ===============================================
+# ============================================
 
-# लॉगिंग (ताकि स्क्रीन पर दिखे कि क्या हो रहा है)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
 # MongoDB
-try:
-    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
-    db = client[DB_NAME]
-    collection = db[COLLECTION_NAME]
-    print("✅ MongoDB Connected!")
-except Exception as e:
-    print(f"❌ MongoDB Connection Error: {e}")
+client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+db = client[DB_NAME]
+collection = db[COLLECTION_NAME]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Bot is Online & Ready to handle requests.")
+    await update.message.reply_text("✅ Bot is Online.")
 
 async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    यह फंक्शन जॉइन रिक्वेस्ट आने पर चलता है।
-    """
-    print("🔔 New Join Request Detected!") # कंसोल में प्रिंट होगा
-    
     request = update.chat_join_request
     user = request.from_user
     chat = request.chat
 
     if chat.id != MAIN_GROUP_ID:
-        print(f"⚠️ Request ignored: Wrong Group ID {chat.id}")
         return
 
-    print(f"👤 Processing User: {user.first_name} ({user.id})")
-
-    # DB Entry
-    user_data = {
-        "user_id": user.id,
-        "first_name": user.first_name,
-        "chat_id": chat.id,
-        "status": "pending",
-        "date": request.date
-    }
-    
+    # DB में सेव करें
     await collection.update_one(
         {"user_id": user.id, "chat_id": chat.id},
-        {"$set": user_data},
+        {"$set": {"user_id": user.id, "first_name": user.first_name, "status": "pending"}},
         upsert=True
     )
 
-    # Buttons
+    # बटन बनाएं
     keyboard = []
     for channel in REQUIRED_CHANNELS:
-        keyboard.append([InlineKeyboardButton("📢 Join Channel", url=channel['link'])])
+        keyboard.append([InlineKeyboardButton(f"📢 Join {channel['name']}", url=channel['link'])])
     
     keyboard.append([InlineKeyboardButton("✅ Verify & Join", callback_data=f"verify_{user.id}_{chat.id}")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Sending Message
+    
+    # यूजर को मैसेज भेजें
     try:
         await context.bot.send_message(
             chat_id=user.id,
-            text=(
-                f"👋 **नमस्ते {user.first_name}!**\n\n"
-                f"आपने **{chat.title}** ग्रुप में रिक्वेस्ट भेजी है।\n"
-                "एक्सेप्ट होने के लिए नीचे दिए गए चैनल जॉइन करें और **Verify** बटन दबाएं। 👇"
-            ),
-            reply_markup=reply_markup,
+            text=f"नमस्ते {user.first_name}!\n\n**{chat.title}** में जुड़ने के लिए नीचे दिए गए चैनल जॉइन करें और फिर **Verify** बटन दबाएं। 👇",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.MARKDOWN
         )
-        print(f"✅ Message sent to {user.first_name}")
-    except Forbidden:
-        print(f"❌ Failed: User {user.id} has blocked the bot.")
     except Exception as e:
-        print(f"❌ Error sending message: {e}")
+        print(f"Error sending DM: {e}")
 
 async def verify_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    यह फंक्शन चैनल चेक करेगा और अगर बोट एडमिन नहीं है तो एरर बताएगा।
+    """
     query = update.callback_query
     await query.answer("Checking...")
 
@@ -113,32 +85,48 @@ async def verify_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE
     group_chat_id = int(data[2])
 
     not_joined = []
+    admin_error = []
 
     for channel in REQUIRED_CHANNELS:
         try:
+            # यहाँ हम चेक कर रहे हैं
             member = await context.bot.get_chat_member(chat_id=channel['id'], user_id=user_id)
+            
+            # अगर मेंबर, एडमिन या क्रिएटर नहीं है
             if member.status not in ['member', 'creator', 'administrator', 'restricted']:
-                not_joined.append(channel['link'])
+                not_joined.append(channel['name'])
+            
+            # अगर restricted है (बैन नहीं) तो OK है
             elif member.status == 'restricted' and not member.is_member:
-                 not_joined.append(channel['link'])
-        except BadRequest as e:
-            await query.edit_message_text(f"❌ Error checking channel: Bot is not admin in {channel['id']}")
-            return
+                 not_joined.append(channel['name'])
 
-    if not_joined:
+        except BadRequest as e:
+            # 🚨 असली एरर यहाँ पकड़ा जाएगा 🚨
+            print(f"❌ Error checking {channel['name']}: {e}")
+            admin_error.append(f"❌ Bot is NOT Admin in {channel['name']}")
+        except Exception as e:
+            print(f"Unknown Error: {e}")
+            admin_error.append(f"❌ Error in {channel['name']}")
+
+    # अगर कोई एरर या चैनल बचा है
+    if admin_error:
+        # अगर बोट एडमिन नहीं है, तो यूजर को सच बता दो
         await query.edit_message_text(
-            text="❌ **आपने सारे चैनल जॉइन नहीं किए!**\nकृपया दोबारा चेक करें।",
-            reply_markup=query.message.reply_markup,
+            text=f"⚠️ **System Error:**\n\nमुझे चैनल्स चेक करने की परमिशन नहीं मिल रही है।\n\n{''.join(admin_error)}\n\n(Admin: कृपया बोट को चैनल में एडमिन बनाएं)",
             parse_mode=ParseMode.MARKDOWN
         )
+    elif not_joined:
+        # अगर यूजर ने चैनल जॉइन नहीं किया
+        await query.edit_message_text(
+            text="❌ **आपने सारे चैनल जॉइन नहीं किए!**\n\nकृपया जॉइन करें और फिर से Verify दबाएं।",
+            reply_markup=query.message.reply_markup
+        )
     else:
+        # सब सही है -> Approve
         try:
             await context.bot.approve_chat_join_request(chat_id=group_chat_id, user_id=user_id)
-            await collection.update_one(
-                {"user_id": user_id, "chat_id": group_chat_id},
-                {"$set": {"status": "approved"}}
-            )
-            await query.edit_message_text("✅ **Verified!** आपकी रिक्वेस्ट एक्सेप्ट कर ली गई है।")
+            await collection.update_one({"user_id": user_id, "chat_id": group_chat_id}, {"$set": {"status": "approved"}})
+            await query.edit_message_text("✅ **Success!** आपकी रिक्वेस्ट एक्सेप्ट कर ली गई है।")
         except BadRequest:
              await query.edit_message_text("⚠️ रिक्वेस्ट पहले ही एक्सेप्ट हो चुकी है।")
 
@@ -149,9 +137,5 @@ if __name__ == '__main__':
     application.add_handler(ChatJoinRequestHandler(handle_join_request))
     application.add_handler(CallbackQueryHandler(verify_subscription, pattern="^verify_"))
 
-    print("🚀 Bot Started with FORCE UPDATE LISTEN...")
-    
-    # =================================================================
-    # 👇👇👇 असली फिक्स यहाँ है (Allowed Updates) 👇👇👇
-    # =================================================================
+    print("🚀 Bot Started with Error Handling...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
