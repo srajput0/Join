@@ -10,4 +10,4 @@ MONGO_URI = "YOUR_MONGO_URI_HERE"
 OWNER_ID = 1234567890
 
 # Google Gemini API Key (Get from aistudio.google.com)
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
+GEMINI_API_KEY = "AIzaSyCEMtaJ-Ep3dmr-n4e4kxs7rEI28DkaWzc"
