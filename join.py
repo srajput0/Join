@@ -15,7 +15,7 @@ import motor.motor_asyncio
 
 # ================= आपकी सेटिंग्स (Updated) =================
 # आपने जो डिटेल्स दी हैं, वो यहाँ सेट कर दी गई हैं:
-BOT_TOKEN = "8265358758:AAE4xUVVEoKcfLVn-BgPhxa9kx43ATww51s"
+BOT_TOKEN = "8207099625:AAGeAXK2s6mloRI8-yjTUf1T1ntt-HHlqWM"
 MONGO_URI = "mongodb+srv://tigerbundle282:tTaRXh353IOL9mj2@testcookies.2elxf.mongodb.net/?retryWrites=true&w=majority&appName=Testcookies"
 
 DB_NAME = "TelegramBotDB"
