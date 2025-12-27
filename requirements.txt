@@ -1,0 +1,6 @@
+python-telegram-bot
+pymongo
+dnspython
+google-generativeai
+pillow
+feedparser
